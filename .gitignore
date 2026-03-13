@@ -1,0 +1,9 @@
+# Secrets
+.env
+
+# Base de données locale
+bank.db
+
+# Python
+__pycache__/
+*.pyc
