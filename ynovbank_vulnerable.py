@@ -548,12 +548,23 @@ def ping():
         #     Payload : 8.8.8.8 && whoami
         # ============================================================
         import re
-        # Vérifie que 'host' ressemble à une IP ou un nom de domaine simple
+        # 1. Validation Regex (Sécurité supplémentaire)
         if not re.match(r"^[a-zA-Z0-9.-]+$", host):
             return "Erreur : Caractères non autorisés détectés."
-        cmd    = f"ping -c 2 {host}"
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
-        output = result.stdout + result.stderr
+
+        # 2. LA CORRECTION CRITIQUE : 
+        # On utilise une liste et shell=False (on ne touche plus à la f-string cmd)
+        try:
+            result = subprocess.run(
+                ["ping", "-n", "2", host], 
+                shell=False, 
+                capture_output=True, 
+                text=True, 
+                timeout=10
+            )
+            output = result.stdout + result.stderr
+        except Exception as e:
+            output = f"Erreur système : {str(e)}"
 
     html = '''
     <!DOCTYPE html>
