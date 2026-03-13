@@ -28,6 +28,12 @@ import sqlite3
 import subprocess
 import os
 
+from pydantic import BaseModel, EmailStr, constr
+
+class UserLogin(BaseModel):
+    email: EmailStr  # Vérifie que c'est un vrai format email
+    password: str
+
 # On importe os et load_dotenv tout en haut du fichier
 import os
 from dotenv import load_dotenv
