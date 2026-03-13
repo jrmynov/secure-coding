@@ -205,90 +205,156 @@ def index():
 # ============================================================
 #  AUTHENTIFICATION - PAGE DE CONNEXION
 # ============================================================
+@app.route('/login', methods=['POST'])
+def login():
+    email = request.form.get('email')
+    password = request.form.get('password')
+
+    # ✅ UTILISATION DU BONUS : Validation Pydantic
+    # On vérifie que l'entrée ressemble à un email avant même de toucher à la DB
+    try:
+        user_input = UserLogin(email=email, password=password)
+    except Exception:
+        return "Format d'email invalide !", 400
+
+    conn = get_db()
+    c = conn.cursor()
+
+    # ============================================================
+    # ☠️  VULNÉRABILITÉ ANCIENNE — SQL INJECTION
+    #     La concaténation directe permettait de manipuler la requête
+    #     Payload : email = ' OR 1=1--
+    # ============================================================
+    # ✅ CORRECTION : Utilisation de paramètres pour éviter l'injection SQL
+    # Les données de user_input (validées par Pydantic) sont passées en tuple
+    query = "SELECT * FROM users WHERE username = ? AND password = ?"
+    c.execute(query, (user_input.email, user_input.password))
+    
+    user = c.fetchone()
+    conn.close()
+
+    if user:
+        session['user']    = user['username']
+        session['role']    = user['role']
+        session['balance'] = user['balance']
+        return redirect(url_for('profile'))
+    else:
+        # On affiche un message d'erreur générique pour ne pas aider un attaquant
+        return render_template_string(LOGIN_PAGE, error="Identifiants incorrects.")
+        
+
+LOGIN_PAGE = '''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>YnovBank - Connexion</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #0f1117; color: #e8e8f0;
+               display: flex; justify-content: center; align-items: center; min-height: 100vh; margin:0; }
+        .login-box { background: #1e1e2e; border: 1px solid #2d2d44; border-radius: 12px;
+                     padding: 40px; width: 400px; }
+        h2 { color: #a78bfa; text-align: center; margin-bottom: 30px; }
+        label { display: block; color: #94a3b8; margin-bottom: 5px; font-size: 14px; }
+        input { width: 100%; padding: 10px; background: #0f1117; border: 1px solid #2d2d44;
+                border-radius: 5px; color: #e8e8f0; box-sizing: border-box; margin-bottom: 15px; }
+        input:focus { outline: none; border-color: #6c3fc5; }
+        button { width: 100%; padding: 12px; background: #6c3fc5; color: white;
+                 border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+        .error { background: #2a0a0a; border: 1px solid #e74c3c; color: #ef4444;
+                 padding: 10px; border-radius: 5px; margin-bottom: 15px; text-align: center; }
+        .hint { background: #0a1f0a; border: 1px solid #2ecc71; color: #4ade80;
+                padding: 10px; border-radius: 5px; margin-top: 15px; font-size: 12px; }
+        a { color: #a78bfa; }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <h2>🏦 YnovBank — Connexion</h2>
+        {% if error %}<div class="error">{{ error }}</div>{% endif %}
+        <form method="POST">
+            <label>Nom d'utilisateur</label>
+            <input type="text" name="email" placeholder="alice" required>
+            <label>Mot de passe</label>
+            <input type="password" name="password" placeholder="••••••••" required>
+            <button type="submit">Se connecter</button>
+        </form>
+        <div class="hint">💡 Comptes : alice / password123 | admin / Admin@2026!</div>
+        <p style="text-align:center; margin-top:15px;"><a href="/">← Retour accueil</a></p>
+    </div>
+</body>
+</html>
+'''
+
+PROFILE_PAGE = '''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>YnovBank - Profil</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #0f1117; color: #e8e8f0; padding: 20px; }
+        .card { background: #1e1e2e; border: 1px solid #2d2d44; border-radius: 8px; padding: 20px; max-width: 600px; margin: 0 auto; }
+        h2 { color: #a78bfa; }
+        .balance { font-size: 2em; color: #4ade80; font-weight: bold; }
+        .role-admin { color: #ef4444; font-weight: bold; }
+        .role-user  { color: #94a3b8; }
+        .nav { background: #1e1e2e; padding: 10px 20px; border-radius: 8px; margin-bottom: 20px; max-width: 600px; margin: 0 auto 20px auto; }
+        .nav a { color: #a78bfa; text-decoration: none; margin-right: 20px; }
+    </style>
+</head>
+<body>
+    <div class="nav">
+        <a href="/">🏠 Accueil</a>
+        <a href="/search">🔍 Recherche</a>
+        <a href="/comments">💬 Commentaires</a>
+        <a href="/ping">📡 Ping</a>
+        <a href="/logout">🚪 Déconnexion</a>
+    </div>
+    <div class="card">
+        <h2>👤 Profil de {{ user }}</h2>
+        <p>Rôle : <span class="{{ 'role-admin' if role == 'admin' else 'role-user' }}">{{ role.upper() }}</span></p>
+        <p>Solde : <span class="balance">{{ "%.2f"|format(balance) }} €</span></p>
+        {% if role == 'admin' %}
+        <p style="color: #ef4444;">⚠️ Vous avez accès aux fonctions administrateur!</p>
+        {% endif %}
+    </div>
+</body>
+</html>
+'''
+
+# --- ROUTES FLASK ---
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    error = None
-    if request.method == 'POST':
-        email    = request.form.get('email', '')
-        password = request.form.get('password', '')
+    if request.method == 'GET':
+        return render_template_string(LOGIN_PAGE)
 
-        conn = get_db()
-        c    = conn.cursor()
+    email = request.form.get('email')
+    password = request.form.get('password')
 
-        # ============================================================
-        # ☠️  VULNÉRABILITÉ #2 — SQL INJECTION
-        #     La concaténation directe permet de manipuler la requête
-        #     Payload : email = ' OR '1'='1'--
-        #               email = ' OR 1=1--
-        # ============================================================
-        # ✅ CORRECTION : Utilisation de paramètres pour éviter l'injection SQL
-        query = "SELECT * FROM users WHERE username = ? AND password = ?"
-        c.execute(query, (email, password))
-        user = c.fetchone()
-        conn.close()
+    try:
+        user_input = UserLogin(email=email, password=password)
+    except Exception:
+        return render_template_string(LOGIN_PAGE, error="Format d'identifiant invalide !")
 
-        if user:
-            session['user']    = user['username']
-            session['role']    = user['role']
-            session['balance'] = user['balance']
-            return redirect(url_for('profile'))
-        else:
-            error = "Identifiants incorrects."
+    conn = get_db()
+    c = conn.cursor()
+    query = "SELECT * FROM users WHERE username = ? AND password = ?"
+    c.execute(query, (user_input.email, user_input.password))
+    user = c.fetchone()
+    conn.close()
 
-    html = '''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>YnovBank - Connexion</title>
-        <style>
-            body { font-family: Arial, sans-serif; background: #0f1117; color: #e8e8f0;
-                   display: flex; justify-content: center; align-items: center; min-height: 100vh; margin:0; }
-            .login-box { background: #1e1e2e; border: 1px solid #2d2d44; border-radius: 12px;
-                         padding: 40px; width: 400px; }
-            h2 { color: #a78bfa; text-align: center; margin-bottom: 30px; }
-            label { display: block; color: #94a3b8; margin-bottom: 5px; font-size: 14px; }
-            input { width: 100%; padding: 10px; background: #0f1117; border: 1px solid #2d2d44;
-                    border-radius: 5px; color: #e8e8f0; box-sizing: border-box; margin-bottom: 15px; }
-            input:focus { outline: none; border-color: #6c3fc5; }
-            button { width: 100%; padding: 12px; background: #6c3fc5; color: white;
-                     border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
-            button:hover { background: #7c4fd5; }
-            .error { background: #2a0a0a; border: 1px solid #e74c3c; color: #ef4444;
-                     padding: 10px; border-radius: 5px; margin-bottom: 15px; text-align: center; }
-            .hint { background: #0a1f0a; border: 1px solid #2ecc71; color: #4ade80;
-                    padding: 10px; border-radius: 5px; margin-top: 15px; font-size: 12px; }
-            a { color: #a78bfa; }
-        </style>
-    </head>
-    <body>
-        <div class="login-box">
-            <h2>🏦 YnovBank — Connexion</h2>
-            {% if error %}
-            <div class="error">{{ error }}</div>
-            {% endif %}
-            <form method="POST">
-                <label>Nom d'utilisateur</label>
-                <input type="text" name="email" placeholder="alice" autocomplete="off">
-                <label>Mot de passe</label>
-                <input type="password" name="password" placeholder="••••••••">
-                <button type="submit">Se connecter</button>
-            </form>
-            <div class="hint">
-                💡 Comptes de test : alice / password123 &nbsp;|&nbsp; admin / Admin@2026!
-            </div>
-            <p style="text-align:center; margin-top:15px;"><a href="/">← Retour accueil</a></p>
-        </div>
-    </body>
-    </html>
-    '''
-    return render_template_string(html, error=error)
-
+    if user:
+        session['user'] = user['username']
+        session['role'] = user['role']
+        session['balance'] = user['balance']
+        return redirect(url_for('profile'))
+    else:
+        return render_template_string(LOGIN_PAGE, error="Identifiants incorrects.")
 
 @app.route('/logout')
 def logout():
     session.clear()
-    return redirect(url_for('index'))
-
+    return redirect(url_for('login'))
 
 @app.route('/profile')
 def profile():
@@ -296,43 +362,7 @@ def profile():
     if not user:
         return redirect(url_for('login'))
 
-    html = '''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>YnovBank - Profil</title>
-        <style>
-            body { font-family: Arial, sans-serif; background: #0f1117; color: #e8e8f0; padding: 20px; }
-            .card { background: #1e1e2e; border: 1px solid #2d2d44; border-radius: 8px; padding: 20px; max-width: 600px; margin: 0 auto; }
-            h2 { color: #a78bfa; }
-            .balance { font-size: 2em; color: #4ade80; font-weight: bold; }
-            .role-admin { color: #ef4444; font-weight: bold; }
-            .role-user  { color: #94a3b8; }
-            a { color: #a78bfa; }
-            .nav { background: #1e1e2e; padding: 10px 20px; border-radius: 8px; margin-bottom: 20px; max-width: 600px; margin: 0 auto 20px auto; }
-            .nav a { color: #a78bfa; text-decoration: none; margin-right: 20px; }
-        </style>
-    </head>
-    <body>
-        <div class="nav">
-            <a href="/">🏠 Accueil</a>
-            <a href="/search">🔍 Recherche</a>
-            <a href="/comments">💬 Commentaires</a>
-            <a href="/ping">📡 Ping</a>
-            <a href="/logout">🚪 Déconnexion</a>
-        </div>
-        <div class="card">
-            <h2>👤 Profil de {{ user }}</h2>
-            <p>Rôle : <span class="{{ 'role-admin' if role == 'admin' else 'role-user' }}">{{ role.upper() }}</span></p>
-            <p>Solde : <span class="balance">{{ "%.2f"|format(balance) }} €</span></p>
-            {% if role == 'admin' %}
-            <p style="color: #ef4444;">⚠️ Vous avez accès aux fonctions administrateur!</p>
-            {% endif %}
-        </div>
-    </body>
-    </html>
-    '''
-    return render_template_string(html,
+    return render_template_string(PROFILE_PAGE,
                                    user=session.get('user'),
                                    role=session.get('role', 'user'),
                                    balance=session.get('balance', 0))
@@ -558,7 +588,7 @@ def ping():
         if not re.match(r"^[a-zA-Z0-9.-]+$", host):
             return "Erreur : Caractères non autorisés détectés."
 
-        # 2. LA CORRECTION CRITIQUE : 
+        # 2. ✅ LA CORRECTION CRITIQUE : 
         # On utilise une liste et shell=False (on ne touche plus à la f-string cmd)
         try:
             result = subprocess.run(
